@@ -1,0 +1,9 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/.vs
+/HomeCredTest/bin/Debug/netcoreapp3.1
+/HomeCredTest/obj
+/HomeCredTest.Tests/bin/Debug/netcoreapp3.1
+/HomeCredTest.Tests/obj
