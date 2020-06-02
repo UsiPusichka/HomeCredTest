@@ -42,11 +42,11 @@ namespace HomeCredTest.Models
             {
                 Thread.Sleep(timeout);
             });
-            yield return new HCTask(4, Priority.High, () =>
+            yield return new HCTask(4, Priority.Normal, () =>
             {
                 Thread.Sleep(timeout);
             });
-            yield return new HCTask(5, Priority.Normal, () =>
+            yield return new HCTask(5, Priority.High, () =>
             {
                 Thread.Sleep(timeout);
             });

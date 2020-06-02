@@ -21,9 +21,13 @@ namespace HomeCredTest.Concrete
         private int _counterHighTasks;
         private int _numberOfTasksAtSameTime;
         private int _maxNumberOfTasksAtSameTime;
-        private int _currentCountTasks;
 
-        private ConcurrentDictionary<IHCTask,Task<IHCTask>> _list;
+        private int _countNormalTask;
+
+        private Queue<(IHCTask, Task<IHCTask>)> _highQueue;
+        private Queue<(IHCTask, Task<IHCTask>)> _normalQueue;
+        private Queue<(IHCTask, Task<IHCTask>)> _lowQueue;
+
         private ConcurrentDictionary<int, Task<IHCTask>> _currenTasksList;
 
         private bool _IsStoping
@@ -71,9 +75,12 @@ namespace HomeCredTest.Concrete
 
             _maxNumberOfTasksAtSameTime = maxNumberOfTasksAtSameTime;
             _counterHighTasks = 0;
-            _currentCountTasks = 0;
+            _countNormalTask = 0;
 
-            _list = new ConcurrentDictionary<IHCTask, Task<IHCTask>>();
+            _highQueue = new Queue<(IHCTask, Task<IHCTask>)>();
+            _normalQueue = new Queue<(IHCTask, Task<IHCTask>)>();
+            _lowQueue = new Queue<(IHCTask, Task<IHCTask>)>();
+
             _currenTasksList = new ConcurrentDictionary<int, Task<IHCTask>>();
 
             _isInitialized = true;
@@ -92,8 +99,20 @@ namespace HomeCredTest.Concrete
 
                 try
                 {
-                    _list.TryAdd(task, new Task<IHCTask>(() => _runTask(task)));
-                    _currentCountTasks++;
+                    switch (task.Priority)
+                    {
+                        case Priority.High:
+                            _highQueue.Enqueue((task, new Task<IHCTask>(() => _runTask(task))));
+                            break;
+                        case Priority.Normal:
+                            _normalQueue.Enqueue((task, new Task<IHCTask>(() => _runTask(task))));
+                            _countNormalTask++;
+                            break;
+                        case Priority.Low:
+                            _lowQueue.Enqueue((task, new Task<IHCTask>(() => _runTask(task))));
+                            break;
+                    }
+
                     if (NumberOfTasksAtSameTime <= _maxNumberOfTasksAtSameTime)
                     {
                         _fillQueue();
@@ -112,14 +131,18 @@ namespace HomeCredTest.Concrete
                 task.TaskCondition = TaskCondition.NotDelivered;
                 return task.TaskCondition;
             }
-
         }
 
         public Task Stop()
         {
             _IsStoping = true;
+            var _list = new List<Task<IHCTask>>();
 
-            var task = Task.WhenAll(_list.Select(x => x.Value).ToArray());
+            _list.AddRange(_highQueue.Select(x => x.Item2));
+            _list.AddRange(_normalQueue.Select(x => x.Item2));
+            _list.AddRange(_lowQueue.Select(x => x.Item2));
+
+            var task = Task.WhenAll(_list.ToArray());
             task.ContinueWith(t => _IsStoping = false);
 
             return task;
@@ -134,41 +157,44 @@ namespace HomeCredTest.Concrete
 
         private void _fillQueue()
         {
-            foreach (var _task in _getTaskFromQueues())
+            foreach (var _task in _getTaskFromQueues1())
             {
-                _task.Value.Start();
+                _task.Item2.Start();
 
-                _task.Key.TaskCondition = TaskCondition.InProgress;
+                _task.Item1.TaskCondition = TaskCondition.InProgress;
 
-                Print.PrintStart(_task.Key, DateTime.Now);
+                Print.PrintStart(_task.Item1, DateTime.Now);
 
-                _task.Value.ContinueWith(t =>
+                _task.Item2.ContinueWith(t =>
                 {
-                    Print.PrintEnd(_task.Key, DateTime.Now);
+                    Print.PrintEnd(_task.Item1, DateTime.Now);
 
                     t.Result.TaskCondition = TaskCondition.Finished;
 
-                    if(_currenTasksList.TryRemove(_task.Key.Id, out var removedTask))
-                    NumberOfTasksAtSameTime--;
+                    if (_currenTasksList.TryRemove(_task.Item1.Id, out var removedTask))
+                        NumberOfTasksAtSameTime--;
                 });
 
-                _currenTasksList.TryAdd(_task.Key.Id, _task.Value);
+                _currenTasksList.TryAdd(_task.Item1.Id, _task.Item2);
 
                 NumberOfTasksAtSameTime++;
             }
         }
 
-        private IEnumerable<KeyValuePair<IHCTask, Task<IHCTask>>> _getTaskFromQueues()
+        private IEnumerable<(IHCTask, Task<IHCTask>)> _getTaskFromQueues1()
         {
             if (NumberOfTasksAtSameTime == _maxNumberOfTasksAtSameTime)
                 yield break;
 
-            var task = _list.FirstOrDefault(x => x.Key.Priority == Priority.High);
-            var taskKey = task.Key;
+            (IHCTask, Task<IHCTask>) task;
+            IHCTask taskKey = null;
 
-            if (taskKey != null && _counterHighTasks < _counterHighTasksLimit)
+            if (_highQueue.TryPeek(out task))
+                taskKey = task.Item1;
+
+            if (taskKey != null && (_counterHighTasks < _counterHighTasksLimit || _countNormalTask == 0))
             {
-                _list.TryRemove(taskKey, out var removed);
+                _highQueue.Dequeue();
                 _counterHighTasks++;
                 yield return task;
             }
@@ -177,24 +203,25 @@ namespace HomeCredTest.Concrete
 
             if (taskKey == null)
             {
-                task = _list.FirstOrDefault(x => x.Key.Priority == Priority.Normal);
-                taskKey = task.Key;
+                if (_normalQueue.TryPeek(out task))
+                    taskKey = task.Item1;
 
                 if (taskKey != null)
                 {
-                    _list.TryRemove(taskKey, out var removed);
+                    _normalQueue.Dequeue();
                     _counterHighTasks = 0;
+                    _countNormalTask--;
                     yield return task;
                 }
             }
             if (taskKey == null)
             {
-                task = _list.FirstOrDefault(x => x.Key.Priority == Priority.Low);
-                taskKey = task.Key;
+                if (_lowQueue.TryPeek(out task))
+                    taskKey = task.Item1;
 
                 if (taskKey != null)
                 {
-                    _list.TryRemove(taskKey, out var removed);
+                    _lowQueue.Dequeue();
                     _counterHighTasks = 0;
                     yield return task;
                 }

@@ -9,9 +9,9 @@ namespace HomeCredTest
         static void Main(string[] args)
         {
             int maxNumberOfTasksAtSameTime = 0;
-            int timeoutTypeOfWork = 3000;
+            int timeoutTypeOfWork = 1000;
             bool isNotAccept = true;
-            Print.PrintEndTask = false;
+            Print.PrintEndTask = true;
 
             Console.WriteLine("Enter max number of tasks at same time: ");
 

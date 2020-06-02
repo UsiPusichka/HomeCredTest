@@ -15,30 +15,70 @@ namespace HomeCredTest.Tests
     public class Tests
     {
         int timeoutTypeOfWork;
+
         [SetUp]
         public void Setup()
         {
             timeoutTypeOfWork = 100;
         }
 
-        [Test]
-        public void ReturnTaskConditionAndQueueTaskTest()
+        [Test, Order(1)]
+        public void ReturnTaskConditionAndQueueTaskWithNormalPriorityTest()
         {
             var taskSheduler = new HCTaskScheduler();
-            taskSheduler.Initialize(4);
+            taskSheduler.Initialize(3);
 
-            foreach(var task in _GetTestData(timeoutTypeOfWork))
+            foreach (var task in _GetTestDataWithNormalPriority(timeoutTypeOfWork))
             {
-                var taskCond = taskSheduler.Schedule(task);
-
-                if (task.Id < 3 || task.Id == 5)
-                    Assert.AreEqual(taskCond, TaskCondition.InProgress);
-                if(task.Id == 4 || task.Id > 5)
-                    Assert.AreEqual(taskCond, TaskCondition.InQueue);
+                taskSheduler.Schedule(task);
             }
+
+            var _currenTasksList = GetField<ConcurrentDictionary<int, Task<IHCTask>>>("_currenTasksList", taskSheduler);
+            var ll = _currenTasksList.Keys.ToArray();
+
+            Assert.AreEqual(ll[0], 1);
+            Assert.AreEqual(ll[1], 2);
+            Assert.AreEqual(ll[2], 3);
+
+            Thread.Sleep(110);
+            ll = _currenTasksList.Keys.ToArray();
+
+            Assert.AreEqual(ll[0], 4);
+            Assert.AreEqual(ll[1], 5);
+            Assert.AreEqual(ll[2], 8);
+
+            taskSheduler.Stop();
         }
 
-        [Test]
+        [Test, Order(2)]
+        public void ReturnTaskConditionAndQueueTaskWithoutNormalPriorityTest()
+        {
+            var taskSheduler = new HCTaskScheduler();
+            taskSheduler.Initialize(3);
+
+            foreach (var task in _GetTestDataWithoutNormalPriority(timeoutTypeOfWork))
+            {
+                taskSheduler.Schedule(task);
+            }
+
+            var _currenTasksList = GetField<ConcurrentDictionary<int, Task<IHCTask>>>("_currenTasksList", taskSheduler);
+            var ll = _currenTasksList.Keys.ToArray();
+
+            Assert.AreEqual(ll[0], 1);
+            Assert.AreEqual(ll[1], 2);
+            Assert.AreEqual(ll[2], 3);
+
+            Thread.Sleep(110);
+            ll = _currenTasksList.Keys.ToArray();
+
+            Assert.AreEqual(ll[0], 4);
+            Assert.AreEqual(ll[1], 6);
+            Assert.AreEqual(ll[2], 8);
+
+            taskSheduler.Stop();
+        }
+
+        [Test, Order(3)]
         [TestCase(2)]
         [TestCase(3)]
         [TestCase(4)]
@@ -47,7 +87,7 @@ namespace HomeCredTest.Tests
             var taskSheduler = new HCTaskScheduler();
             taskSheduler.Initialize(maxNumberOfTasksAtSameTime);
 
-            foreach (var task in _GetTestData(timeoutTypeOfWork))
+            foreach (var task in _GetTestDataWithNormalPriority(timeoutTypeOfWork))
             {
                 taskSheduler.Schedule(task);
             }
@@ -58,13 +98,13 @@ namespace HomeCredTest.Tests
             Assert.AreEqual(_currenTasksList.Count(), maxNumberOfTasksAtSameTime);
         }
 
-        [Test]
+        [Test, Order(4)]
         public void StopTest()
         {
             var taskSheduler = new HCTaskScheduler();
             taskSheduler.Initialize(4);
 
-            foreach (var task in _GetTestData(timeoutTypeOfWork))
+            foreach (var task in _GetTestDataWithNormalPriority(timeoutTypeOfWork))
             {
                 taskSheduler.Schedule(task);
             }
@@ -72,15 +112,61 @@ namespace HomeCredTest.Tests
 
             task1.Wait();
 
-            FieldInfo fieldInfo = typeof(HCTaskScheduler).GetField("_list", BindingFlags.Instance | BindingFlags.NonPublic);
-            var _list = (ConcurrentDictionary<IHCTask, Task<IHCTask>>)fieldInfo.GetValue(taskSheduler);
+            var _queue1 = GetField<Queue<(IHCTask, Task<IHCTask>)>>("_highQueue", taskSheduler);
+            var _queue2 = GetField<Queue<(IHCTask, Task<IHCTask>)>>("_normalQueue", taskSheduler);
+            var _queue3 = GetField<Queue<(IHCTask, Task<IHCTask>)>>("_lowQueue", taskSheduler);
 
-            Assert.IsTrue(!_list.Any());
+            Assert.IsTrue(!_queue1.Any());
+            Assert.IsTrue(!_queue2.Any());
+            Assert.IsTrue(!_queue3.Any());
         }
 
         #region Private methods
 
-        private static IEnumerable<IHCTask> _GetTestData(int timeout)
+        private T GetField<T>(string fieldName, HCTaskScheduler taskSheduler)
+        {
+            FieldInfo fieldInfo = typeof(HCTaskScheduler).GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+            return (T)fieldInfo.GetValue(taskSheduler);
+        }
+
+        private static IEnumerable<IHCTask> _GetTestDataWithNormalPriority(int timeout)
+        {
+            yield return new HCTask(1, Priority.High, () =>
+            {
+                //type of work
+                Thread.Sleep(timeout);
+            });
+            yield return new HCTask(2, Priority.High, () =>
+            {
+                Thread.Sleep(timeout);
+            });
+            yield return new HCTask(3, Priority.High, () =>
+            {
+                Thread.Sleep(timeout);
+            });
+            yield return new HCTask(4, Priority.Normal, () =>
+            {
+                Thread.Sleep(timeout);
+            });
+            yield return new HCTask(5, Priority.High, () =>
+            {
+                Thread.Sleep(timeout);
+            });
+            yield return new HCTask(6, Priority.Low, () =>
+            {
+                Thread.Sleep(timeout);
+            });
+            yield return new HCTask(7, Priority.Low, () =>
+            {
+                Thread.Sleep(timeout);
+            });
+            yield return new HCTask(8, Priority.High, () =>
+            {
+                Thread.Sleep(timeout);
+            });
+        }
+
+        private static IEnumerable<IHCTask> _GetTestDataWithoutNormalPriority(int timeout)
         {
             yield return new HCTask(1, Priority.High, () =>
             {
@@ -99,35 +185,19 @@ namespace HomeCredTest.Tests
             {
                 Thread.Sleep(timeout);
             });
-            yield return new HCTask(5, Priority.Normal, () =>
+            yield return new HCTask(5, Priority.Low, () =>
             {
                 Thread.Sleep(timeout);
             });
-            yield return new HCTask(6, Priority.Low, () =>
+            yield return new HCTask(6, Priority.High, () =>
             {
                 Thread.Sleep(timeout);
             });
-            yield return new HCTask(7, Priority.Normal, () =>
+            yield return new HCTask(7, Priority.Low, () =>
             {
                 Thread.Sleep(timeout);
             });
             yield return new HCTask(8, Priority.High, () =>
-            {
-                Thread.Sleep(timeout);
-            });
-            yield return new HCTask(9, Priority.Low, () =>
-            {
-                Thread.Sleep(timeout);
-            });
-            yield return new HCTask(10, Priority.Low, () =>
-            {
-                Thread.Sleep(timeout);
-            });
-            yield return new HCTask(11, Priority.High, () =>
-            {
-                Thread.Sleep(timeout);
-            });
-            yield return new HCTask(11, Priority.Normal, () =>
             {
                 Thread.Sleep(timeout);
             });
